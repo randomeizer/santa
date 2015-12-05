@@ -1,0 +1,25 @@
+{
+  "name": "santa",
+  "version": "2015.0.0",
+  "description": "Secret Santa Generator",
+  "main": "santa.js",
+  "dependencies": {
+    "nodemailer": "^1.10.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://bitbucket.org/randomeizer/santa.git"
+  },
+  "keywords": [
+    "secret",
+    "santa",
+    "christmas"
+  ],
+  "author": "David Peterson",
+  "license": "ISC",
+  "homepage": "https://bitbucket.org/randomeizer/santa#readme"
+}
