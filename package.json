@@ -4,6 +4,7 @@
   "description": "Secret Santa Generator",
   "main": "santa.js",
   "dependencies": {
+    "jsonfile": "^2.4.0",
     "nodemailer": "^1.10.0"
   },
   "devDependencies": {},

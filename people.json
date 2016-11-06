@@ -1,0 +1,11 @@
+[
+  {"first": "John", "last": "Peterson", "email": "john@petersonexpress.net", "partner": "Glenda", "history": ["David","Andrew","Monique"]},
+  {"first": "Glenda", "last": "Peterson", "email": "glenda@petersonexpress.net", "partner": "John", "history": ["David","Andrew","Loch"]},
+  {"first": "David", "last": "Peterson", "email": "david@randombits.org", "partner": "Daniela", "history": ["Monique","Monique","Philip"]},
+  {"first": "Andrew", "last": "Peterson", "email": "andrew@petersonexpress.net", "history": ["Loch","Loch","Heidi"]},
+  {"first": "Philip", "last": "Peterson", "email": "theprips@gmail.com", "partner": "Monique", "history": ["Glenda","Heidi","John"]},
+  {"first": "Monique", "last": "Peterson", "email": "missmrw@gmail.com", "partner": "Philip", "history": ["Glenda","Heidi","David"]},
+  {"first": "Heidi", "last": "Oakley", "email": "heidi@petersonexpress.net", "partner": "Loch", "history": ["John","Philip","Glenda"]},
+  {"first": "Loch", "last": "Oakley", "email": "lochoakley@hotmail.com", "partner": "Heidi", "history": ["Philip","John","Andrew"]},
+  {"first": "Daniela", "last": "Herrera", "email": "danielahvt@gmail.com", "partner": "David", "history": []}
+]
