@@ -222,10 +222,19 @@ function help() {
   console.log("By default, this will simply load the 'people.dat' file and then save it again.");
   console.log("");
   console.log("Options:");
-  console.log("--in=<path> - (default 'people.dat') Specify the input path. '*.dat' files will be encrypted, '*.json' will be plain text.");
-  console.log("--out=<path> - (default to the 'in' path) Specify the output path. '*.dat' will be encrypted, '*.json' will be plain text.");
-  console.log("--generate - will generate a new list of gift givers for the current year.");
-  console.log("--send - if specified, each giver will be sent their secret recipient in an email.");
-  console.log("--test-email=<email address> - if an email address is provided, it will be used instead of the giver's email address.");
-  console.log("--print - If specified, the people data loaded will be printed.");
+  console.log("\t--in=<path> - (default 'people.dat') Specify the input path. '*.dat' files will be encrypted, '*.json' will be plain text.");
+  console.log("\t--out=<path> - (default to the 'in' path) Specify the output path. '*.dat' will be encrypted, '*.json' will be plain text.");
+  console.log("\t--generate - will generate a new list of gift givers for the current year.");
+  console.log("\t--send - if specified, each giver will be sent their secret recipient in an email.");
+  console.log("\t--test-email=<email address> - if an email address is provided, it will be used instead of the giver's email address.");
+  console.log("\t--print - If specified, the people data loaded will be printed.");
+  console.log("");
+  console.log("To generate, send out and save a new set of Secret Santa emails, do this:");
+  console.log("\tnode santa.js --generate --send");
+  console.log("To decrypt the current data file, do this:")
+  console.log("\tnode santa.js --out=my-data.json");
+  console.log("To encrypt a JSON file to 'people.dat', do this:");
+  console.log("\tnode santa.js --in=my-data.json --out=people.dat")
+  console.log("To print the contents of 'people.dat', do this:");
+  console.log("\tnode santa.js --print")
 }
