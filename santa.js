@@ -1,7 +1,13 @@
+require('string.prototype.endswith');
 var nodemailer = require("nodemailer");
-var jsonfile = require("jsonfile");
+const fs = require('fs');
+var cfs = require('crypto-fs');
 
-var argv = require('minimist')(process.argv.slice(2));
+const DEFAULT_DATA_FILE = "people.dat";
+
+var argv = require('minimist')(process.argv.slice(2), {
+  "boolean": true
+});
 
 // create reusable transporter object using SMTP transport
 var transporter = nodemailer.createTransport({
@@ -12,17 +18,75 @@ var transporter = nodemailer.createTransport({
   }
 });
 
-var people = jsonfile.readFileSync("people.json");
+// Initialise crypto
+// Note: We're really just encrypting so that the person running it doesn't accidentally see the list...
+cfs.init({
+  password: "SecretSanta",
+  root: process.cwd()
+});
 
 /********* Start Application **********/
-var list = createList(people);
-mailList(list);
+if (argv.help) {
+  help();
+  process.exit(0);
+}
+
+var inFile = argv.in ? argv.in : DEFAULT_DATA_FILE;
+var outFile = argv.out ? argv.out : inFile;
+
+// Load people
+var people = loadPeople(inFile);
+
+if (argv.generate) {
+  var list = generateList(people);
+  mailList(list, argv.send);
+}
+
+if (argv.print) {
+  printPeople(people);
+}
+
+savePeople(people, outFile);
+
 console.log("Secret Santa List complete!");
 /*********  End Application  **********/
 
-function createList(people) {
+function loadPeople(inFile) {
+  var peopleText;
+  
+  if (inFile.endsWith(".dat")) {
+    if (!cfs.existsSync(inFile)) {
+      console.log("Unable to find '" + inFile + "'.");
+      console.log("You can specify an alternate file to load by adding '--in=<path>'.");
+      process.exit(10);
+    }
+    console.log("Decrypting '" + inFile + "'...");
+    peopleText = cfs.readFileSync(inFile);
+    console.log("Decrypted.")
+  } else if (inFile.endsWith(".json")) {
+    if (!fs.existsSync(inFile)) {
+      console.log("Unable to find '" + inFile + "'.");
+      console.log("You can specify an alternate file to load by adding '--in=<path>'.");
+      process.exit(10);
+    }
+    
+    console.log("Loading '" + inFile + "'...");
+    peopleText = fs.readFileSync(inFile, 'utf8');
+    console.log("Loaded.");
+  } else {
+    console.log("Unrecognised input file format: " + inFile);
+    process.exit(1);
+  }
+  
+  return JSON.parse(peopleText);
+}
+
+// Generates an array of entries with 'from' and 'to' pointing at people. 
+// The people.history record for the current year will be updated.
+function generateList(people) {
+  var thisYear = new Date().getFullYear();
   // Create the recipient list
-  var recipients = createRecipients(people);
+  var recipients = generateRecipients(people, thisYear);
 
   var list = [];
   for (var i = 0; i < people.length; i++) {
@@ -30,11 +94,12 @@ function createList(people) {
       from: people[i],
       to: recipients[i]
     };
+    people[i].history[thisYear.toString()] = recipients[i].first;
   }
   return list;
 }
 
-function createRecipients(people) {
+function generateRecipients(people, year) {
   // Create the recipient list
   var shuffles = 0;
   var recipients = [];
@@ -45,24 +110,38 @@ function createRecipients(people) {
   do {
     shuffles++;
     shuffle(recipients);
-  } while (badRecipients(people, recipients));
+  } while (badRecipients(people, recipients, year));
 
   console.log("Created Recipient List after " + shuffles + " shuffles.");
   return recipients;
 }
 
-function badRecipients(people, recipients) {
+function badRecipients(people, recipients, thisYear) {
+  // Check how many years to check for repeats. Defaults to 2.
+  var history = argv.history ? parseInt(argv.history) : 2;
+  
   for (var i = 0; i < people.length; i++) {
     var from = people[i];
     var to = recipients[i];
+
+    // console.log("Checking the recipient for " + from.first);
+    
     // If sending to ourself or our partner, it's bad
     if (from.first === to.first || from.partner === to.first)
       return true;
-    // If sending to someone we gave to in the last two years, it's bad
-    if (from.history.slice(-2).indexOf(to.first) >= 0)
-      return true;
+    // If sending to someone we gave to in the last few years, it's bad
+    // console.log("Checking history of up to " + history + " years for " + from.first + ".");
+    for(var j = 1; j <= history; j++) {
+      if (checkYear(from.history, thisYear - j, to.first))
+        return true;
+    }
   }
   return false;
+}
+
+function checkYear(history, year, value) {
+  var hValue = history[year.toString()];
+  return hValue && hValue.indexOf(value) >= 0;
 }
 
 function shuffle(array) {
@@ -78,15 +157,18 @@ function shuffle(array) {
   }
 }
 
-function mailList(list) {
-  console.log("Sending the list...");
+function mailList(list, send) {
+  console.log((send ? "Secretly sending" : "Printing") + " the list...");
   for (var i = 0; i < list.length; i++) {
     var from = list[i].from;
     var to = list[i].to;
-    // TODO: Comment this out to prevent seeing the real list.
-    console.log(list[i].from.first + " => " + list[i].to.first);
-    // TODO: Uncomment this to actually send the email.
-    //sendEmail(from, to);
+
+    if (send) {
+      sendEmail(from, to);
+      //      console.log(list[i].from.first + " emailed.");
+    } else {
+      console.log(list[i].from.first + " => " + list[i].to.first);
+    }
   }
 }
 
@@ -94,11 +176,18 @@ function sendEmail(giver, receiver) {
   // setup e-mail data with unicode symbols
   var mailOptions = {
     from: 'Secret Santa <santa@petersonexpress.net>', // sender address
-    //    to: "David Peterson <david@randombits.org>",
     to: giver.first + " " + giver.last + " <" + giver.email + ">", // list of receivers
     subject: 'Your Secret Santa is....', // Subject line
-    text: 'Hi ' + giver.first + ",\n\nYour Secret Santa this year is " + receiver.first + ".\n\nMerry Christmas!", // plaintext body
+    text: 'Hi ' + giver.first + ",\n\nYour Secret Santa this year is " + receiver.first + ".\n\nMerry Christmas!\n\nP.S. Don't tell them! It's a secret!!!", // plaintext body
   };
+
+  if (argv["test-email"]) {
+    // It's a test, so hijack the email and prefix 'TEST: ' to the subject.
+    var email = argv["test-email"];
+    console.log("Using TEST email address " + email);
+    mailOptions.to = email;
+    mailOptions.subject = "TEST: " + mailOptions.subject;
+  }
 
   // send mail with defined transport object
   transporter.sendMail(mailOptions, function(error, info) {
@@ -107,4 +196,36 @@ function sendEmail(giver, receiver) {
     }
     console.log('Message sent to ' + giver.first + ': ' + info.response);
   });
+}
+
+function printPeople(people) {
+  console.log("Printing people data:");
+  console.log(JSON.stringify(people, null, 2));
+}
+
+function savePeople(people, outFile) {
+  console.log("Saving people to '" + outFile + "'");
+  var peopleText = JSON.stringify(people, null, 2);
+  
+  if (outFile.endsWith(".dat")) {
+    cfs.writeFileSync(outFile, peopleText);
+  } else if (outFile.endsWith(".json")) {
+    fs.writeFileSync(outFile, peopleText);  
+  } else {
+    console.log("Unrecognised output file format: " + outFile);
+    process.exit(2);
+  }
+}
+
+function help() {
+  console.log("This script generates a Secret Santa list for the Peterson family.");
+  console.log("By default, this will simply load the 'people.dat' file and then save it again.");
+  console.log("");
+  console.log("Options:");
+  console.log("--in=<path> - (default 'people.dat') Specify the input path. '*.dat' files will be encrypted, '*.json' will be plain text.");
+  console.log("--out=<path> - (default to the 'in' path) Specify the output path. '*.dat' will be encrypted, '*.json' will be plain text.");
+  console.log("--generate - will generate a new list of gift givers for the current year.");
+  console.log("--send - if specified, each giver will be sent their secret recipient in an email.");
+  console.log("--test-email=<email address> - if an email address is provided, it will be used instead of the giver's email address.");
+  console.log("--print - If specified, the people data loaded will be printed.");
 }
