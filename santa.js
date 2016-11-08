@@ -53,7 +53,7 @@ console.log("Secret Santa List complete!");
 
 function loadPeople(inFile) {
   var peopleText;
-  
+
   if (inFile.endsWith(".dat")) {
     if (!cfs.existsSync(inFile)) {
       console.log("Unable to find '" + inFile + "'.");
@@ -69,7 +69,7 @@ function loadPeople(inFile) {
       console.log("You can specify an alternate file to load by adding '--in=<path>'.");
       process.exit(10);
     }
-    
+
     console.log("Loading '" + inFile + "'...");
     peopleText = fs.readFileSync(inFile, 'utf8');
     console.log("Loaded.");
@@ -77,7 +77,7 @@ function loadPeople(inFile) {
     console.log("Unrecognised input file format: " + inFile);
     process.exit(1);
   }
-  
+
   return JSON.parse(peopleText);
 }
 
@@ -117,31 +117,63 @@ function generateRecipients(people, year) {
 }
 
 function badRecipients(people, recipients, thisYear) {
-  // Check how many years to check for repeats. Defaults to 2.
-  var history = argv.history ? parseInt(argv.history) : 2;
-  
+  // Check how many years to check for repeats. Defaults to 1.
+  var history = argv.history ? parseInt(argv.history) : 1;
+  var partners = 0;
+
   for (var i = 0; i < people.length; i++) {
     var from = people[i];
     var to = recipients[i];
 
     // console.log("Checking the recipient for " + from.first);
-    
-    // If sending to ourself or our partner, it's bad
-    if (from.first === to.first || from.partner === to.first)
+
+    // If sending to ourself, it's bad
+    if (from.first === to.first)
       return true;
+
+    // If sending to our partner, it's bad
+    if (from.partner === to.first && ++partners > 1)
+      return true;
+
+    // If my recipient is also sending to me this year, it's bad
+    for (var j = 0; j < i; j++) {
+      if (isEqual(people[i].first, to.first) && isEqual(recipients[j], from.first))
+        return true;
+    }
+    
     // If sending to someone we gave to in the last few years, it's bad
     // console.log("Checking history of up to " + history + " years for " + from.first + ".");
-    for(var j = 1; j <= history; j++) {
+    for (var j = 1; j <= history; j++) {
       if (checkYear(from.history, thisYear - j, to.first))
         return true;
     }
+
+    // If sending to my partner's recipient from last year, it's bad
+    var partner = findPerson(people, from.partner);
+    if (partner && checkYear(partner.history, thisYear - 1, to.first))
+      return true;
   }
   return false;
 }
 
+function isEqual(left, right) {
+  return left.indexOf(right) >= 0;
+}
+
+function findPerson(people, first) {
+  if (first) {
+    for (var i = 0; i < people.length; i++) {
+      var person = people[i];
+      if (isEqual(person.first, first))
+        return person;
+    }
+  }
+  return null;
+}
+
 function checkYear(history, year, value) {
   var hValue = history[year.toString()];
-  return hValue && hValue.indexOf(value) >= 0;
+  return hValue && isEqual(hValue, value);
 }
 
 function shuffle(array) {
@@ -188,6 +220,9 @@ function sendEmail(giver, receiver) {
     mailOptions.to = email;
     mailOptions.subject = "TEST: " + mailOptions.subject;
   }
+  
+  if (argv['subject-prefix'])
+    mailOptions.subject = argv['subject-prefix'].trim() + " " + mailOptions.subject;
 
   // send mail with defined transport object
   transporter.sendMail(mailOptions, function(error, info) {
@@ -206,11 +241,11 @@ function printPeople(people) {
 function savePeople(people, outFile) {
   console.log("Saving people to '" + outFile + "'");
   var peopleText = JSON.stringify(people, null, 2);
-  
+
   if (outFile.endsWith(".dat")) {
     cfs.writeFileSync(outFile, peopleText);
   } else if (outFile.endsWith(".json")) {
-    fs.writeFileSync(outFile, peopleText);  
+    fs.writeFileSync(outFile, peopleText);
   } else {
     console.log("Unrecognised output file format: " + outFile);
     process.exit(2);
@@ -227,6 +262,7 @@ function help() {
   console.log("\t--generate - will generate a new list of gift givers for the current year.");
   console.log("\t--send - if specified, each giver will be sent their secret recipient in an email.");
   console.log("\t--test-email=<email address> - if an email address is provided, it will be used instead of the giver's email address.");
+  console.log("\t--subject-prefix=<prefix> - the provided text will be prefixed to the standard subject line.")
   console.log("\t--print - If specified, the people data loaded will be printed.");
   console.log("");
   console.log("To generate, send out and save a new set of Secret Santa emails, do this:");
