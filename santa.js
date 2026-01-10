@@ -4,19 +4,66 @@ const fs = require('fs');
 var cfs = require('crypto-fs');
 
 const DEFAULT_DATA_FILE = "people.dat";
+const ENV_FILE = ".env";
+
+function loadEnvFile(path) {
+  if (!fs.existsSync(path)) {
+    return;
+  }
+
+  var lines = fs.readFileSync(path, "utf8").split(/\r?\n/);
+  lines.forEach(function(line) {
+    var trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      return;
+    }
+    var idx = trimmed.indexOf("=");
+    if (idx === -1) {
+      return;
+    }
+    var key = trimmed.slice(0, idx).trim();
+    var value = trimmed.slice(idx + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  });
+}
+
+loadEnvFile(ENV_FILE);
+
+const SMTP_USER = process.env.SANTA_SMTP_USER || 'santa@petersonexpress.net';
+const SMTP_PASS = process.env.SANTA_SMTP_PASS;
+const MAIL_FROM = 'Secret Santa <' + SMTP_USER + '>';
 
 var argv = require('minimist')(process.argv.slice(2), {
   "boolean": true
 });
 
-// create reusable transporter object using SMTP transport
-var transporter = nodemailer.createTransport({
-  service: 'Gmail',
-  auth: {
-    user: 'santa@petersonexpress.net',
-    pass: 'Rudolph2015'
+// Create transport only when sending, so printing/generating doesn't need creds.
+var transporter;
+function getTransporter() {
+  if (transporter) {
+    return transporter;
   }
-});
+
+  if (!SMTP_PASS) {
+    console.error("Missing SANTA_SMTP_PASS. Set it before using --send.");
+    process.exit(2);
+  }
+
+  transporter = nodemailer.createTransport({
+    service: 'Gmail',
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS
+    }
+  });
+
+  return transporter;
+}
 
 // Initialise crypto
 // Note: We're really just encrypting so that the person running it doesn't accidentally see the list...
@@ -207,7 +254,7 @@ function mailList(list, send) {
 function sendEmail(giver, receiver) {
   // setup e-mail data with unicode symbols
   var mailOptions = {
-    from: 'Secret Santa <santa@petersonexpress.net>', // sender address
+    from: MAIL_FROM, // sender address
     to: giver.first + " " + giver.last + " <" + giver.email + ">", // list of receivers
     subject: 'Your Secret Santa is....', // Subject line
     text: 'Hi ' + giver.first + ",\n\nYour Secret Santa this year is " + receiver.first + ".\n\nMerry Christmas!\n\nP.S. Don't tell them! It's a secret!!!", // plaintext body
@@ -225,7 +272,7 @@ function sendEmail(giver, receiver) {
     mailOptions.subject = argv['subject-prefix'].trim() + " " + mailOptions.subject;
 
   // send mail with defined transport object
-  transporter.sendMail(mailOptions, function(error, info) {
+  getTransporter().sendMail(mailOptions, function(error, info) {
     if (error) {
       return console.log(error);
     }
@@ -264,6 +311,11 @@ function help() {
   console.log("\t--test-email=<email address> - if an email address is provided, it will be used instead of the giver's email address.");
   console.log("\t--subject-prefix=<prefix> - the provided text will be prefixed to the standard subject line.")
   console.log("\t--print - If specified, the people data loaded will be printed.");
+  console.log("");
+  console.log("Email settings:");
+  console.log("\tSANTA_SMTP_USER - SMTP username (defaults to santa@petersonexpress.net)");
+  console.log("\tSANTA_SMTP_PASS - SMTP password (required when using --send)");
+  console.log("\t.env - if present, will be loaded for these variables");
   console.log("");
   console.log("To generate, send out and save a new set of Secret Santa emails, do this:");
   console.log("\tnode santa.js --generate --send");
