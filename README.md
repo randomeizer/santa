@@ -9,7 +9,7 @@ Simple Node.js script to generate a Secret Santa list, optionally email each giv
 
 ## Install
 
-```
+```sh
 npm install
 ```
 
@@ -21,47 +21,50 @@ npm install
 
 ## Usage
 
+For most cases, you can run `./santa` directly instead of `node santa.js`.
+
 Generate a new list and save it back to `santa.sack`:
 
-```
-node santa.js --generate
+```sh
+./santa --generate
 ```
 
 Generate and send emails:
 
-```
-node santa.js --generate --send
+```sh
+./santa --generate --send
 ```
 
 Decrypt `santa.sack` to a JSON file:
 
-```
-node santa.js --out=my-data.json
+```sh
+./santa --out=my-data.json
 ```
 
 Encrypt a JSON file to `santa.sack`:
 
-```
-node santa.js --in=my-data.json --out=santa.sack
+```sh
+./santa --in=my-data.json --out=santa.sack
 ```
 
 Print the people data:
 
-```
-node santa.js --print
+```sh
+./santa --print
 ```
 
 ## Email configuration
 
 Set these environment variables (or create a local `.env` file):
 
-```
+```sh
 SANTA_SMTP_USER=santa@petersonexpress.net
 SANTA_SMTP_PASS=your_password_here
 SANTA_SACK_PASS=your_data_password
 ```
 
 Notes:
+
 - `.env` is loaded automatically if present.
 - `.env` is ignored by git.
 - `SANTA_SMTP_PASS` is required when using `--send`.
@@ -82,18 +85,18 @@ Notes:
 
 If you still have the legacy `people.dat`, migrate it to the new `.sack` format:
 
-```
-node santa.js --migrate
+```sh
+./santa --migrate
 ```
 
 You can override the defaults:
 
-```
-node santa.js --migrate --in=old.dat --out=new.sack
+```sh
+./santa --migrate --in=old.dat --out=new.sack
 ```
 
 ## Testing
 
-```
+```sh
 npm test
 ```

@@ -81,8 +81,8 @@ function main() {
     return;
   }
 
-  var inFile = argv.in ? argv.in : DEFAULT_DATA_FILE;
-  var outFile = argv.out ? argv.out : inFile;
+  var inFile = normalizePathArg(argv.in, DEFAULT_DATA_FILE, "in");
+  var outFile = normalizePathArg(argv.out, inFile, "out");
 
   if (!argv.in && !fs.existsSync(inFile) && legacyStore.existsSync(LEGACY_DATA_FILE)) {
     console.error("Missing '" + inFile + "'. Legacy '" + LEGACY_DATA_FILE + "' detected.");
@@ -110,6 +110,11 @@ function main() {
 
 function loadPeople(inFile) {
   var peopleText;
+
+  if (typeof inFile !== "string") {
+    console.error("Input path must be a string.");
+    process.exit(2);
+  }
 
   if (inFile.endsWith(LEGACY_EXT)) {
     console.error("Legacy data file detected. Run `node santa.js --migrate` first.");
@@ -302,6 +307,11 @@ function savePeople(people, outFile) {
   console.log("Saving people to '" + outFile + "'");
   var peopleText = JSON.stringify(people, null, 2);
 
+  if (typeof outFile !== "string") {
+    console.error("Output path must be a string.");
+    process.exit(2);
+  }
+
   if (outFile.endsWith(LEGACY_EXT)) {
     console.error("Refusing to write legacy data file. Use `node santa.js --migrate` instead.");
     process.exit(2);
@@ -316,8 +326,8 @@ function savePeople(people, outFile) {
 }
 
 function migrateLegacy() {
-  var inFile = argv.in ? argv.in : LEGACY_DATA_FILE;
-  var outFile = argv.out ? argv.out : DEFAULT_DATA_FILE;
+  var inFile = normalizePathArg(argv.in, LEGACY_DATA_FILE, "in");
+  var outFile = normalizePathArg(argv.out, DEFAULT_DATA_FILE, "out");
 
   if (!inFile.endsWith(LEGACY_EXT)) {
     console.error("Migration input must be a .dat file.");
@@ -362,6 +372,24 @@ function requireSackPass() {
   return process.env.SANTA_SACK_PASS;
 }
 
+function normalizePathArg(value, fallback, flagName) {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (value === true) {
+    console.error("Missing value for --" + flagName + ".");
+    process.exit(2);
+  }
+  if (Array.isArray(value)) {
+    value = value[value.length - 1];
+  }
+  if (typeof value !== "string") {
+    console.error("Invalid value for --" + flagName + ".");
+    process.exit(2);
+  }
+  return value;
+}
+
 function help() {
   console.log("This script generates a Secret Santa list for the Peterson family.");
   console.log("By default, this will load 'santa.sack' and then save it again.");
@@ -401,11 +429,13 @@ if (require.main === module) {
 module.exports = {
   loadEnvFile,
   loadPeople,
+  savePeople,
   generateList,
   generateRecipients,
   badRecipients,
   isEqual,
   findPerson,
   checkYear,
-  shuffle
+  shuffle,
+  normalizePathArg
 };

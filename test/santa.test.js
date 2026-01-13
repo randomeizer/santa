@@ -1,8 +1,9 @@
 const assert = require("assert");
+const childProcess = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const santa = require("../santa");
+const santa = require("../santa.js");
 const sackStore = require("../lib/sack-store");
 const legacyStore = require("../lib/legacy-store");
 
@@ -14,6 +15,39 @@ function test(name, fn) {
     console.error("not ok - " + name);
     console.error(err && err.stack ? err.stack : err);
     process.exitCode = 1;
+  }
+}
+
+function runSanta(args, options) {
+  const scriptPath = path.join(__dirname, "..", "santa.js");
+  const env = Object.assign({}, process.env, options && options.env ? options.env : {});
+  return childProcess.spawnSync(process.execPath, [scriptPath].concat(args || []), {
+    cwd: options && options.cwd ? options.cwd : undefined,
+    env: env,
+    encoding: "utf8"
+  });
+}
+
+function expectExit(name, fn, expectedCode) {
+  const originalExit = process.exit;
+  let exitCode;
+  process.exit = function(code) {
+    exitCode = code;
+    throw new Error("process.exit");
+  };
+
+  try {
+    fn();
+  } catch (err) {
+    if (!exitCode) {
+      throw err;
+    }
+  } finally {
+    process.exit = originalExit;
+  }
+
+  if (exitCode !== expectedCode) {
+    throw new Error(name + " expected exit code " + expectedCode + ", got " + exitCode);
   }
 }
 
@@ -118,6 +152,199 @@ test("legacy-store reads legacy encrypted data", function() {
     const encryptedPath = legacyStore.getEncryptedPath(legacyFile, tmpDir);
     if (fs.existsSync(encryptedPath)) {
       fs.unlinkSync(encryptedPath);
+    }
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("normalizePathArg rejects boolean flag without value", function() {
+  expectExit("missing out value", function() {
+    santa.normalizePathArg(true, "fallback", "out");
+  }, 2);
+});
+
+test("normalizePathArg uses last string when repeated", function() {
+  const value = santa.normalizePathArg(["first.sack", "second.sack"], "fallback", "out");
+  assert.strictEqual(value, "second.sack");
+});
+
+test("normalizePathArg rejects non-string array values", function() {
+  expectExit("array non-string", function() {
+    santa.normalizePathArg(["first.sack", true], "fallback", "out");
+  }, 2);
+});
+
+test("loadPeople rejects non-string input path", function() {
+  expectExit("non-string input", function() {
+    santa.loadPeople(true);
+  }, 2);
+});
+
+test("loadPeople reads JSON files", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  const filePath = path.join(tmpDir, "people.json");
+  const people = createPeople();
+
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(people));
+    const loaded = santa.loadPeople(filePath);
+    assert.deepStrictEqual(loaded, people);
+  } finally {
+    fs.unlinkSync(filePath);
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("loadPeople rejects .sack without password", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  const filePath = path.join(tmpDir, "people.sack");
+  const payload = JSON.stringify(createPeople());
+  const originalPass = process.env.SANTA_SACK_PASS;
+
+  try {
+    process.env.SANTA_SACK_PASS = "test-pass";
+    sackStore.writeFileSync(filePath, payload, process.env.SANTA_SACK_PASS);
+    delete process.env.SANTA_SACK_PASS;
+
+    expectExit("missing sack pass", function() {
+      santa.loadPeople(filePath);
+    }, 2);
+  } finally {
+    if (originalPass === undefined) {
+      delete process.env.SANTA_SACK_PASS;
+    } else {
+      process.env.SANTA_SACK_PASS = originalPass;
+    }
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("loadPeople rejects unknown extensions", function() {
+  expectExit("unknown extension", function() {
+    santa.loadPeople("people.txt");
+  }, 1);
+});
+
+test("savePeople rejects non-string output path", function() {
+  expectExit("non-string output", function() {
+    santa.savePeople([], true);
+  }, 2);
+});
+
+test("savePeople writes JSON files", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  const filePath = path.join(tmpDir, "people.json");
+  const people = createPeople();
+
+  try {
+    santa.savePeople(people, filePath);
+    const loaded = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    assert.deepStrictEqual(loaded, people);
+  } finally {
+    fs.unlinkSync(filePath);
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("savePeople writes .sack files", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  const filePath = path.join(tmpDir, "people.sack");
+  const people = createPeople();
+  const payload = JSON.stringify(people, null, 2);
+  const originalPass = process.env.SANTA_SACK_PASS;
+
+  try {
+    process.env.SANTA_SACK_PASS = "test-pass";
+    santa.savePeople(people, filePath);
+    const decoded = sackStore.readFileSync(filePath, process.env.SANTA_SACK_PASS);
+    assert.strictEqual(decoded, payload);
+  } finally {
+    if (originalPass === undefined) {
+      delete process.env.SANTA_SACK_PASS;
+    } else {
+      process.env.SANTA_SACK_PASS = originalPass;
+    }
+    fs.unlinkSync(filePath);
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("savePeople rejects unknown extensions", function() {
+  expectExit("unknown output", function() {
+    santa.savePeople([], "people.txt");
+  }, 2);
+});
+
+test("migrateLegacy rejects non-.dat input", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  try {
+    const result = runSanta(["--migrate", "--in=people.json", "--out=people.sack"], { cwd: tmpDir });
+    assert.strictEqual(result.status, 2);
+  } finally {
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("migrateLegacy rejects non-.sack output", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  try {
+    const result = runSanta(["--migrate", "--in=people.dat", "--out=people.json"], { cwd: tmpDir });
+    assert.strictEqual(result.status, 2);
+  } finally {
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("migrateLegacy rejects existing output files", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  const outPath = path.join(tmpDir, "people.sack");
+
+  try {
+    fs.writeFileSync(outPath, "existing");
+    const result = runSanta(["--migrate", "--in=people.dat", "--out=people.sack"], { cwd: tmpDir });
+    assert.strictEqual(result.status, 2);
+  } finally {
+    fs.unlinkSync(outPath);
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("migrateLegacy rejects missing legacy files", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  try {
+    const result = runSanta(["--migrate", "--in=people.dat", "--out=people.sack"], { cwd: tmpDir });
+    assert.strictEqual(result.status, 10);
+  } finally {
+    fs.rmdirSync(tmpDir);
+  }
+});
+
+test("migrateLegacy converts legacy data", function() {
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  const payload = JSON.stringify(createPeople());
+
+  try {
+    legacyStore.writeFileSync("people.dat", payload, tmpDir);
+    const result = runSanta(
+      ["--migrate", "--in=people.dat", "--out=people.sack"],
+      { cwd: tmpDir, env: { SANTA_SACK_PASS: "test-pass" } }
+    );
+    assert.strictEqual(result.status, 0);
+
+    const outPath = path.join(tmpDir, "people.sack");
+    const decoded = sackStore.readFileSync(outPath, "test-pass");
+    assert.strictEqual(decoded, payload);
+  } finally {
+    const legacyPath = legacyStore.getEncryptedPath("people.dat", tmpDir);
+    const outPath = path.join(tmpDir, "people.sack");
+    if (fs.existsSync(legacyPath)) {
+      fs.unlinkSync(legacyPath);
+    }
+    if (fs.existsSync(outPath)) {
+      fs.unlinkSync(outPath);
     }
     fs.rmdirSync(tmpDir);
   }
