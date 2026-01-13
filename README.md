@@ -73,3 +73,9 @@ Notes:
 - `--test-email=<address>`: send all emails to a single test address
 - `--subject-prefix=<prefix>`: prefix the email subject
 - `--print`: print loaded data
+
+## Testing
+
+```
+npm test
+```

@@ -1,6 +1,54 @@
 require('string.prototype.endswith');
 var nodemailer = require("nodemailer");
 const fs = require('fs');
+const crypto = require('crypto');
+
+function patchLegacyCipher() {
+  if (typeof crypto.createCipher === "function" && typeof crypto.createDecipher === "function") {
+    return;
+  }
+
+  function getKeyIv(algorithm, password) {
+    var keyLen = 32;
+    var ivLen = 16;
+
+    if (algorithm.indexOf("aes-128-") === 0) {
+      keyLen = 16;
+    } else if (algorithm.indexOf("aes-192-") === 0) {
+      keyLen = 24;
+    }
+
+    var data = Buffer.isBuffer(password) ? password : Buffer.from(String(password), "utf8");
+    var derived = Buffer.alloc(0);
+    var prev = Buffer.alloc(0);
+
+    while (derived.length < keyLen + ivLen) {
+      var hash = crypto.createHash("md5");
+      hash.update(prev);
+      hash.update(data);
+      prev = hash.digest();
+      derived = Buffer.concat([derived, prev]);
+    }
+
+    return {
+      key: derived.slice(0, keyLen),
+      iv: derived.slice(keyLen, keyLen + ivLen)
+    };
+  }
+
+  crypto.createCipher = function(algorithm, password) {
+    var parts = getKeyIv(algorithm, password);
+    return crypto.createCipheriv(algorithm, parts.key, parts.iv);
+  };
+
+  crypto.createDecipher = function(algorithm, password) {
+    var parts = getKeyIv(algorithm, password);
+    return crypto.createDecipheriv(algorithm, parts.key, parts.iv);
+  };
+}
+
+patchLegacyCipher();
+
 var cfs = require('crypto-fs');
 
 const DEFAULT_DATA_FILE = "people.dat";
@@ -73,29 +121,31 @@ cfs.init({
 });
 
 /********* Start Application **********/
-if (argv.help) {
-  help();
-  process.exit(0);
+function main() {
+  if (argv.help) {
+    help();
+    process.exit(0);
+  }
+
+  var inFile = argv.in ? argv.in : DEFAULT_DATA_FILE;
+  var outFile = argv.out ? argv.out : inFile;
+
+  // Load people
+  var people = loadPeople(inFile);
+
+  if (argv.generate) {
+    var list = generateList(people);
+    mailList(list, argv.send);
+  }
+
+  if (argv.print) {
+    printPeople(people);
+  }
+
+  savePeople(people, outFile);
+
+  console.log("Secret Santa List complete!");
 }
-
-var inFile = argv.in ? argv.in : DEFAULT_DATA_FILE;
-var outFile = argv.out ? argv.out : inFile;
-
-// Load people
-var people = loadPeople(inFile);
-
-if (argv.generate) {
-  var list = generateList(people);
-  mailList(list, argv.send);
-}
-
-if (argv.print) {
-  printPeople(people);
-}
-
-savePeople(people, outFile);
-
-console.log("Secret Santa List complete!");
 /*********  End Application  **********/
 
 function loadPeople(inFile) {
@@ -163,9 +213,9 @@ function generateRecipients(people, year) {
   return recipients;
 }
 
-function badRecipients(people, recipients, thisYear) {
+function badRecipients(people, recipients, thisYear, historyLimit) {
   // Check how many years to check for repeats. Defaults to 1.
-  var history = argv.history ? parseInt(argv.history) : 1;
+  var history = historyLimit !== undefined ? historyLimit : (argv.history ? parseInt(argv.history) : 1);
   var partners = 0;
 
   for (var i = 0; i < people.length; i++) {
@@ -326,3 +376,19 @@ function help() {
   console.log("To print the contents of 'people.dat', do this:");
   console.log("\tnode santa.js --print")
 }
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  loadEnvFile,
+  loadPeople,
+  generateList,
+  generateRecipients,
+  badRecipients,
+  isEqual,
+  findPerson,
+  checkYear,
+  shuffle
+};
