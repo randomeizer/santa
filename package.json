@@ -4,7 +4,6 @@
   "description": "Secret Santa Generator",
   "main": "santa.js",
   "dependencies": {
-    "crypto-fs": "^0.8.0",
     "minimist": "^1.2.8",
     "nodemailer": "^7.0.12",
     "string.prototype.endswith": "^1.0.2"

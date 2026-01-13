@@ -3,6 +3,8 @@ const fs = require("fs");
 const path = require("path");
 
 const santa = require("../santa");
+const sackStore = require("../lib/sack-store");
+const legacyStore = require("../lib/legacy-store");
 
 function test(name, fn) {
   try {
@@ -85,4 +87,38 @@ test("generateList updates history for the current year", function() {
   list.forEach(function(entry) {
     assert.strictEqual(entry.from.history[year], entry.to.first);
   });
+});
+
+test("sack-store roundtrips encrypted data", function() {
+  const tmpPath = path.join(__dirname, "tmp.sack");
+  const payload = JSON.stringify(createPeople());
+  const pass = "test-pass";
+
+  try {
+    sackStore.writeFileSync(tmpPath, payload, pass);
+    const decoded = sackStore.readFileSync(tmpPath, pass);
+    assert.strictEqual(decoded, payload);
+  } finally {
+    if (fs.existsSync(tmpPath)) {
+      fs.unlinkSync(tmpPath);
+    }
+  }
+});
+
+test("legacy-store reads legacy encrypted data", function() {
+  const payload = JSON.stringify(createPeople());
+  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+  const legacyFile = "people.dat";
+
+  try {
+    legacyStore.writeFileSync(legacyFile, payload, tmpDir);
+    const decoded = legacyStore.readFileSync(legacyFile, tmpDir);
+    assert.strictEqual(decoded, payload);
+  } finally {
+    const encryptedPath = legacyStore.getEncryptedPath(legacyFile, tmpDir);
+    if (fs.existsSync(encryptedPath)) {
+      fs.unlinkSync(encryptedPath);
+    }
+    fs.rmdirSync(tmpDir);
+  }
 });
