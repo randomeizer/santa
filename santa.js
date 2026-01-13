@@ -1,22 +1,117 @@
 require('string.prototype.endswith');
 var nodemailer = require("nodemailer");
 const fs = require('fs');
+const crypto = require('crypto');
+
+function patchLegacyCipher() {
+  if (typeof crypto.createCipher === "function" && typeof crypto.createDecipher === "function") {
+    return;
+  }
+
+  function getKeyIv(algorithm, password) {
+    var keyLen = 32;
+    var ivLen = 16;
+
+    if (algorithm.indexOf("aes-128-") === 0) {
+      keyLen = 16;
+    } else if (algorithm.indexOf("aes-192-") === 0) {
+      keyLen = 24;
+    }
+
+    var data = Buffer.isBuffer(password) ? password : Buffer.from(String(password), "utf8");
+    var derived = Buffer.alloc(0);
+    var prev = Buffer.alloc(0);
+
+    while (derived.length < keyLen + ivLen) {
+      var hash = crypto.createHash("md5");
+      hash.update(prev);
+      hash.update(data);
+      prev = hash.digest();
+      derived = Buffer.concat([derived, prev]);
+    }
+
+    return {
+      key: derived.slice(0, keyLen),
+      iv: derived.slice(keyLen, keyLen + ivLen)
+    };
+  }
+
+  crypto.createCipher = function(algorithm, password) {
+    var parts = getKeyIv(algorithm, password);
+    return crypto.createCipheriv(algorithm, parts.key, parts.iv);
+  };
+
+  crypto.createDecipher = function(algorithm, password) {
+    var parts = getKeyIv(algorithm, password);
+    return crypto.createDecipheriv(algorithm, parts.key, parts.iv);
+  };
+}
+
+patchLegacyCipher();
+
 var cfs = require('crypto-fs');
 
 const DEFAULT_DATA_FILE = "people.dat";
+const ENV_FILE = ".env";
+
+function loadEnvFile(path) {
+  if (!fs.existsSync(path)) {
+    return;
+  }
+
+  var lines = fs.readFileSync(path, "utf8").split(/\r?\n/);
+  lines.forEach(function(line) {
+    var trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      return;
+    }
+    var idx = trimmed.indexOf("=");
+    if (idx === -1) {
+      return;
+    }
+    var key = trimmed.slice(0, idx).trim();
+    var value = trimmed.slice(idx + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  });
+}
+
+loadEnvFile(ENV_FILE);
+
+const SMTP_USER = process.env.SANTA_SMTP_USER || 'santa@petersonexpress.net';
+const SMTP_PASS = process.env.SANTA_SMTP_PASS;
+const MAIL_FROM = 'Secret Santa <' + SMTP_USER + '>';
 
 var argv = require('minimist')(process.argv.slice(2), {
   "boolean": true
 });
 
-// create reusable transporter object using SMTP transport
-var transporter = nodemailer.createTransport({
-  service: 'Gmail',
-  auth: {
-    user: 'santa@petersonexpress.net',
-    pass: 'Rudolph2015'
+// Create transport only when sending, so printing/generating doesn't need creds.
+var transporter;
+function getTransporter() {
+  if (transporter) {
+    return transporter;
   }
-});
+
+  if (!SMTP_PASS) {
+    console.error("Missing SANTA_SMTP_PASS. Set it before using --send.");
+    process.exit(2);
+  }
+
+  transporter = nodemailer.createTransport({
+    service: 'Gmail',
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS
+    }
+  });
+
+  return transporter;
+}
 
 // Initialise crypto
 // Note: We're really just encrypting so that the person running it doesn't accidentally see the list...
@@ -26,29 +121,31 @@ cfs.init({
 });
 
 /********* Start Application **********/
-if (argv.help) {
-  help();
-  process.exit(0);
+function main() {
+  if (argv.help) {
+    help();
+    process.exit(0);
+  }
+
+  var inFile = argv.in ? argv.in : DEFAULT_DATA_FILE;
+  var outFile = argv.out ? argv.out : inFile;
+
+  // Load people
+  var people = loadPeople(inFile);
+
+  if (argv.generate) {
+    var list = generateList(people);
+    mailList(list, argv.send);
+  }
+
+  if (argv.print) {
+    printPeople(people);
+  }
+
+  savePeople(people, outFile);
+
+  console.log("Secret Santa List complete!");
 }
-
-var inFile = argv.in ? argv.in : DEFAULT_DATA_FILE;
-var outFile = argv.out ? argv.out : inFile;
-
-// Load people
-var people = loadPeople(inFile);
-
-if (argv.generate) {
-  var list = generateList(people);
-  mailList(list, argv.send);
-}
-
-if (argv.print) {
-  printPeople(people);
-}
-
-savePeople(people, outFile);
-
-console.log("Secret Santa List complete!");
 /*********  End Application  **********/
 
 function loadPeople(inFile) {
@@ -116,9 +213,9 @@ function generateRecipients(people, year) {
   return recipients;
 }
 
-function badRecipients(people, recipients, thisYear) {
+function badRecipients(people, recipients, thisYear, historyLimit) {
   // Check how many years to check for repeats. Defaults to 1.
-  var history = argv.history ? parseInt(argv.history) : 1;
+  var history = historyLimit !== undefined ? historyLimit : (argv.history ? parseInt(argv.history) : 1);
   var partners = 0;
 
   for (var i = 0; i < people.length; i++) {
@@ -207,7 +304,7 @@ function mailList(list, send) {
 function sendEmail(giver, receiver) {
   // setup e-mail data with unicode symbols
   var mailOptions = {
-    from: 'Secret Santa <santa@petersonexpress.net>', // sender address
+    from: MAIL_FROM, // sender address
     to: giver.first + " " + giver.last + " <" + giver.email + ">", // list of receivers
     subject: 'Your Secret Santa is....', // Subject line
     text: 'Hi ' + giver.first + ",\n\nYour Secret Santa this year is " + receiver.first + ".\n\nMerry Christmas!\n\nP.S. Don't tell them! It's a secret!!!", // plaintext body
@@ -225,7 +322,7 @@ function sendEmail(giver, receiver) {
     mailOptions.subject = argv['subject-prefix'].trim() + " " + mailOptions.subject;
 
   // send mail with defined transport object
-  transporter.sendMail(mailOptions, function(error, info) {
+  getTransporter().sendMail(mailOptions, function(error, info) {
     if (error) {
       return console.log(error);
     }
@@ -265,6 +362,11 @@ function help() {
   console.log("\t--subject-prefix=<prefix> - the provided text will be prefixed to the standard subject line.")
   console.log("\t--print - If specified, the people data loaded will be printed.");
   console.log("");
+  console.log("Email settings:");
+  console.log("\tSANTA_SMTP_USER - SMTP username (defaults to santa@petersonexpress.net)");
+  console.log("\tSANTA_SMTP_PASS - SMTP password (required when using --send)");
+  console.log("\t.env - if present, will be loaded for these variables");
+  console.log("");
   console.log("To generate, send out and save a new set of Secret Santa emails, do this:");
   console.log("\tnode santa.js --generate --send");
   console.log("To decrypt the current data file, do this:")
@@ -274,3 +376,19 @@ function help() {
   console.log("To print the contents of 'people.dat', do this:");
   console.log("\tnode santa.js --print")
 }
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  loadEnvFile,
+  loadPeople,
+  generateList,
+  generateRecipients,
+  badRecipients,
+  isEqual,
+  findPerson,
+  checkYear,
+  shuffle
+};
