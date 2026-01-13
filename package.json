@@ -5,11 +5,10 @@
   "main": "santa.js",
   "dependencies": {
     "crypto-fs": "^0.8.0",
-    "minimist": "^1.2.0",
-    "nodemailer": "^1.11.0",
-    "string.prototype.endswith": "^0.2.0"
+    "minimist": "^1.2.8",
+    "nodemailer": "^7.0.12",
+    "string.prototype.endswith": "^1.0.2"
   },
-  "devDependencies": {},
   "scripts": {
     "test": "node test/santa.test.js"
   },
